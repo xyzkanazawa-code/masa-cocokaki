@@ -1,0 +1,66 @@
+rules_version = '2';
+
+// ココカキ：テンプレートはチームで共有（閲覧はメンバー、編集は管理者のみ）
+// 入力データはクラウドに保存しない（端末内のみ）
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function secretPath(t) { return /databases/$(database)/documents/teamSecrets/$(t); }
+    function memberPath(t) { return /databases/$(database)/documents/teams/$(t)/members/$(request.auth.uid); }
+    function isMember(t) { return signedIn() && exists(memberPath(t)); }
+    function isAdmin(t) { return isMember(t) && get(memberPath(t)).data.role == 'admin'; }
+    function validCode(c) { return c is string && c.size() >= 4 && c.size() <= 64; }
+
+    // 参加コード。誰も読めない。最初の1回だけ作成でき、以後は管理者のみ変更可
+    match /teamSecrets/{t} {
+      allow read, delete: if false;
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly(['memberCode', 'adminCode'])
+        && validCode(request.resource.data.memberCode)
+        && validCode(request.resource.data.adminCode)
+        && request.resource.data.memberCode != request.resource.data.adminCode;
+      allow update: if isAdmin(t)
+        && request.resource.data.keys().hasOnly(['memberCode', 'adminCode'])
+        && validCode(request.resource.data.memberCode)
+        && validCode(request.resource.data.adminCode)
+        && request.resource.data.memberCode != request.resource.data.adminCode;
+    }
+
+    match /teams/{t} {
+      allow read: if signedIn();
+      // 初期設定と同時（同じバッチ）にのみ作成できる
+      allow create: if signedIn() && !exists(secretPath(t)) && existsAfter(secretPath(t));
+      allow update, delete: if false;
+
+      match /members/{uid} {
+        allow read: if signedIn() && request.auth.uid == uid;
+        allow create, update: if signedIn() && request.auth.uid == uid
+          && request.resource.data.keys().hasOnly(['role', 'code', 'joinedAt'])
+          && (
+            (request.resource.data.role == 'member'
+              && request.resource.data.code == getAfter(secretPath(t)).data.memberCode)
+            || (request.resource.data.role == 'admin'
+              && request.resource.data.code == getAfter(secretPath(t)).data.adminCode)
+          );
+        allow delete: if signedIn() && request.auth.uid == uid;
+      }
+
+      match /templates/{id} {
+        allow read: if isMember(t);
+        allow write: if isAdmin(t);
+      }
+
+      // テンプレートの画像・PDF。一度書いたら変更不可（空白テンプレートを守る）
+      match /blobs/{id} {
+        allow read: if isMember(t);
+        allow create, delete: if isAdmin(t);
+        allow update: if false;
+        match /chunks/{c} {
+          allow read: if isMember(t);
+          allow create, delete: if isAdmin(t);
+          allow update: if false;
+        }
+      }
+    }
+  }
+}
