@@ -322,11 +322,17 @@ export function RegisterPage() {
                   }
                 }}
               >
-                {STANDARD_PAPER_SIZES.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.label}
-                  </option>
-                ))}
+                {(['A判', 'B判（JIS）', 'ビジネス・帳票・伝票', '封筒', '写真・カード', 'その他'] as const).map(
+                  (cat) => (
+                    <optgroup key={cat} label={`【${cat}】`}>
+                      {STANDARD_PAPER_SIZES.filter((s) => s.category === cat).map((s) => (
+                        <option key={s.id} value={s.id}>
+                          {s.label}
+                        </option>
+                      ))}
+                    </optgroup>
+                  ),
+                )}
               </select>
             </label>
 
