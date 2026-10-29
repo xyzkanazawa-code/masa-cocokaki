@@ -156,6 +156,34 @@ export function InputPage() {
         </button>
       </div>
 
+      {/* 入力欄が未設定（0個）の場合の案内 */}
+      {template.fields.length === 0 && (
+        <div
+          className="missing-bar"
+          style={{
+            backgroundColor: '#fef2f2',
+            borderColor: '#fca5a5',
+            color: '#991b1b',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '8px',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <AlertCircle size={18} />
+            <span>このテンプレートには入力欄がまだ設定されていません（0個）。</span>
+          </div>
+          <Link
+            to={`/edit/${template.id}`}
+            className="btn btn-primary btn-sm"
+            style={{ padding: '6px 14px', fontSize: '13px', whiteSpace: 'nowrap' }}
+          >
+            入力欄を自動検出・配置する
+          </Link>
+        </div>
+      )}
+
       {/* 必須未入力の案内 */}
       {missing.length > 0 && (
         <div className="missing-bar">

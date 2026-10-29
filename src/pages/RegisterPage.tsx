@@ -1,8 +1,9 @@
-import { ArrowLeft, Camera, Check, FileUp, Image as ImageIcon, Lightbulb, Ruler } from 'lucide-react';
+import { ArrowLeft, Camera, Check, FileUp, Image as ImageIcon, Lightbulb, Ruler, Sparkles } from 'lucide-react';
 import { useRef, useState, type ChangeEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { PerspectiveCropper } from '../components/PerspectiveCropper';
 import { useApp } from '../context/AppContext';
+import { detectFormFieldsFromPhoto } from '../lib/autoFieldDetector';
 import { canvasToBlob, imageToCanvas, loadImage, makeThumb } from '../lib/image';
 import { STANDARD_PAPER_SIZES } from '../lib/paperSize';
 import { renderPdf } from '../lib/pdf';
@@ -84,7 +85,7 @@ export function RegisterPage() {
     }
   };
 
-  const handleSaveTemplate = async (nextDest: 'edit' | 'cleanup' | 'home') => {
+  const handleSaveTemplate = async (nextDest: 'edit' | 'cleanup' | 'home' | 'autodetect') => {
     if (!repos) return;
     const trimmedName = name.trim() || '精算書テンプレート';
     setBusy(true);
@@ -112,6 +113,17 @@ export function RegisterPage() {
         const thumbBlob = await makeThumb(imageToCanvas(firstImg, 600));
         const thumbBlobId = await repos.blobs.put(thumbBlob);
 
+        let initialFields: any[] = [];
+        if (nextDest === 'autodetect') {
+          setStatusMsg('PDFから入力欄を検出中…');
+          try {
+            const firstCanvas = imageToCanvas(firstImg, 2000);
+            initialFields = await detectFormFieldsFromPhoto(firstCanvas, 0, (msg) => setStatusMsg(msg));
+          } catch (e) {
+            console.warn('PDFからの自動検出スキップ:', e);
+          }
+        }
+
         const created = await repos.templates.create({
           name: trimmedName,
           kind: 'pdf',
@@ -119,7 +131,7 @@ export function RegisterPage() {
           sourceBlobId,
           sourceMime: 'application/pdf',
           thumbBlobId,
-          fields: [],
+          fields: initialFields,
           annotations: [],
         });
         nav(nextDest === 'home' ? '/' : `/edit/${created.id}`);
@@ -148,6 +160,16 @@ export function RegisterPage() {
           finalHeightMm = isLandscape ? shortSide : longSide;
         }
 
+        let initialFields: any[] = [];
+        if (nextDest === 'autodetect') {
+          setStatusMsg('写真から枠線・見出しを解析して入力欄を自動生成中…');
+          try {
+            initialFields = await detectFormFieldsFromPhoto(croppedCanvas, 0, (msg) => setStatusMsg(msg));
+          } catch (e) {
+            console.warn('写真からの自動検出エラー:', e);
+          }
+        }
+
         const created = await repos.templates.create({
           name: trimmedName,
           kind: 'photo',
@@ -165,12 +187,12 @@ export function RegisterPage() {
           sourceBlobId: bgBlobId,
           sourceMime: 'image/jpeg',
           thumbBlobId,
-          fields: [],
+          fields: initialFields,
           annotations: [],
         });
         if (nextDest === 'cleanup') {
           nav(`/edit/${created.id}?tab=cleanup`);
-        } else if (nextDest === 'edit') {
+        } else if (nextDest === 'edit' || nextDest === 'autodetect') {
           nav(`/edit/${created.id}`);
         } else {
           nav('/');
@@ -380,11 +402,21 @@ export function RegisterPage() {
               type="button"
               className="btn btn-primary btn-block"
               disabled={busy}
+              onClick={() => handleSaveTemplate('autodetect')}
+              style={{ backgroundColor: '#15803d', borderColor: '#166534' }}
+            >
+              <Sparkles size={20} />
+              入力欄を写真から自動検出して登録（おすすめ！）
+            </button>
+            <button
+              type="button"
+              className="btn btn-secondary btn-block"
+              disabled={busy}
               onClick={() => handleSaveTemplate(isAdmin ? 'cleanup' : 'home')}
             >
               <Check size={20} />
               {isAdmin
-                ? '保存して「きれい化（写真補正 / 作り直し）」へ進む（おすすめ）'
+                ? '保存して「きれい化（写真補正 / 作り直し）」へ進む'
                 : '空白テンプレートとして登録してホームへ戻る'}
             </button>
             {isAdmin && (
@@ -394,7 +426,7 @@ export function RegisterPage() {
                 disabled={busy}
                 onClick={() => handleSaveTemplate('edit')}
               >
-                保存して「入力欄の配置」へ進む
+                保存して手動で「入力欄の配置」へ進む
               </button>
             )}
             <button
@@ -425,10 +457,20 @@ export function RegisterPage() {
                   type="button"
                   className="btn btn-primary btn-block"
                   disabled={busy}
+                  onClick={() => handleSaveTemplate('autodetect')}
+                  style={{ backgroundColor: '#15803d', borderColor: '#166534' }}
+                >
+                  <Sparkles size={20} />
+                  入力欄をPDFから自動検出して登録（おすすめ！）
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-block"
+                  disabled={busy}
                   onClick={() => handleSaveTemplate('edit')}
                 >
                   <Check size={20} />
-                  テンプレートを保存して「入力欄の配置」へ進む
+                  手動で「入力欄の配置」へ進む
                 </button>
                 <button
                   type="button"

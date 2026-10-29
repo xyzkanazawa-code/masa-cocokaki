@@ -15,6 +15,7 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { CleanupPanel } from '../components/CleanupPanel';
 import { useApp } from '../context/AppContext';
 import { createEraseAnnotations, detectTextRegionsToErase } from '../lib/autoEraser';
+import { detectFormFieldsFromPhoto } from '../lib/autoFieldDetector';
 import { findCycle } from '../lib/calc';
 import { FIELD_TYPE_LABEL, isNumeric } from '../lib/format';
 import { clamp, newId } from '../lib/id';
@@ -65,6 +66,8 @@ export function TemplateEditorPage() {
   const [eraserSize, setEraserSize] = useState<number>(0.035);
   const [erasingBusy, setErasingBusy] = useState(false);
   const [erasingStatus, setErasingStatus] = useState<string | null>(null);
+  const [detectingBusy, setDetectingBusy] = useState(false);
+  const [detectingStatus, setDetectingStatus] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [savedNotice, setSavedNotice] = useState<string | null>(null);
   const [cycleWarn, setCycleWarn] = useState<string | null>(null);
@@ -166,6 +169,34 @@ export function TemplateEditorPage() {
     setFields((prev) => [...prev, newF]);
     setSelectedFieldId(newF.id);
     setDrawMode('none');
+  };
+
+  const handleAutoDetectFields = async () => {
+    if (!bgCanvasRef.current) return;
+    setDetectingBusy(true);
+    setDetectingStatus('写真の枠線・文字を解析中…');
+    try {
+      const detected = await detectFormFieldsFromPhoto(
+        bgCanvasRef.current,
+        pageIndex,
+        (msg) => setDetectingStatus(msg),
+      );
+      if (detected.length === 0) {
+        alert('枠線や見出し項目が見つかりませんでした。手動で枠を追加してください。');
+        return;
+      }
+      setFields((prev) => [...prev, ...detected]);
+      if (detected[0]) {
+        setSelectedFieldId(detected[0].id);
+      }
+      setSavedNotice(`${detected.length}箇所の入力欄を自動生成しました！`);
+      setTimeout(() => setSavedNotice(null), 3500);
+    } catch (err) {
+      alert('自動検出中にエラーが発生しました: ' + (err as Error).message);
+    } finally {
+      setDetectingBusy(false);
+      setDetectingStatus(null);
+    }
   };
 
   const addAnnotationAt = (rect: Rect, initialText = '修正文字') => {
@@ -443,6 +474,16 @@ export function TemplateEditorPage() {
                 <>
                   <button
                     type="button"
+                    className="btn btn-secondary btn-sm"
+                    disabled={detectingBusy}
+                    onClick={handleAutoDetectFields}
+                    style={{ backgroundColor: '#f0fdf4', borderColor: '#86efac', color: '#166534', fontWeight: 'bold' }}
+                  >
+                    <Sparkles size={18} />
+                    {detectingBusy ? detectingStatus : '写真から入力欄を自動検出・一括配置'}
+                  </button>
+                  <button
+                    type="button"
                     className={`btn btn-sm ${drawMode === 'new-field' ? 'btn-active-toggle' : 'btn-primary'}`}
                     onClick={() =>
                       setDrawMode((m) => (m === 'new-field' ? 'none' : 'new-field'))
@@ -577,6 +618,39 @@ export function TemplateEditorPage() {
               onPointerCancel={handleStagePointerUp}
             >
               <canvas ref={bgCanvasRef} className="stage-canvas" />
+
+              {/* 入力欄がまだ0個のときの目立つガイド */}
+              {tab === 'fields' && pageFields.length === 0 && (
+                <div
+                  style={{
+                    position: 'absolute',
+                    top: '20px',
+                    left: '50%',
+                    transform: 'translateX(-50%)',
+                    zIndex: 25,
+                    backgroundColor: 'rgba(255, 255, 255, 0.95)',
+                    border: '2px solid #22c55e',
+                    borderRadius: '10px',
+                    padding: '12px 18px',
+                    boxShadow: '0 6px 18px rgba(0, 0, 0, 0.18)',
+                    textAlign: 'center',
+                    maxWidth: '92%',
+                  }}
+                >
+                  <p style={{ margin: '0 0 8px', fontWeight: 'bold', color: '#166534', fontSize: '14px' }}>
+                    💡 入力欄がまだ0個です。写真から枠や項目を自動検出できます！
+                  </p>
+                  <button
+                    type="button"
+                    className="btn btn-primary btn-sm"
+                    disabled={detectingBusy}
+                    onClick={handleAutoDetectFields}
+                  >
+                    <Sparkles size={16} />
+                    {detectingBusy ? detectingStatus : '写真から入力欄を自動検出・一括配置する'}
+                  </button>
+                </div>
+              )}
 
               {/* PDFテキストレイヤーがある場合のワンタップ文字編集ターゲット（文字修正タブ時） */}
               {tab === 'annotations' &&
