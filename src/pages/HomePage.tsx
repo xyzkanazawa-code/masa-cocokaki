@@ -51,7 +51,11 @@ function TemplateCard({
       <div className="template-card-body">
         <h3 className="template-title">{t.name}</h3>
         <p className="template-meta">
-          入力欄 {t.fields.length}個 ・ {t.pages.length}ページ ・ 更新 {fmtDate(t.updatedAt)}
+          入力欄 {t.fields.length}個 ・ {t.pages.length}ページ
+          {t.pages[0]?.widthMm && t.pages[0]?.heightMm
+            ? ` ・ ${t.pages[0].paperSizeName && t.pages[0].paperSizeName !== 'custom' ? t.pages[0].paperSizeName : `${Math.round(t.pages[0].widthMm)}×${Math.round(t.pages[0].heightMm)}mm`}`
+            : ''}
+          {' '}・ 更新 {fmtDate(t.updatedAt)}
         </p>
 
         <button

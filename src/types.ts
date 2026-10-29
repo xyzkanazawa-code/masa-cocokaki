@@ -93,6 +93,10 @@ export interface PageDef {
   pdfWidth?: number;
   pdfHeight?: number;
   textItems?: PdfTextItem[];
+  /** 用紙サイズ設定（A4, A3等またはカスタムmm） */
+  paperSizeName?: string;
+  widthMm?: number;
+  heightMm?: number;
 }
 
 export interface Template {

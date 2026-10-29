@@ -1,9 +1,10 @@
-import { ArrowLeft, Camera, Check, FileUp, Image as ImageIcon, Lightbulb } from 'lucide-react';
+import { ArrowLeft, Camera, Check, FileUp, Image as ImageIcon, Lightbulb, Ruler } from 'lucide-react';
 import { useRef, useState, type ChangeEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { PerspectiveCropper } from '../components/PerspectiveCropper';
 import { useApp } from '../context/AppContext';
 import { canvasToBlob, imageToCanvas, loadImage, makeThumb } from '../lib/image';
+import { STANDARD_PAPER_SIZES } from '../lib/paperSize';
 import { renderPdf } from '../lib/pdf';
 import type { PageDef } from '../types';
 
@@ -21,6 +22,11 @@ export function RegisterPage() {
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  // 用紙サイズ設定（写真登録用）
+  const [paperSizeId, setPaperSizeId] = useState<string>('A4');
+  const [customWidthMm, setCustomWidthMm] = useState<number>(210);
+  const [customHeightMm, setCustomHeightMm] = useState<number>(297);
 
   const pdfInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
@@ -125,6 +131,22 @@ export function RegisterPage() {
         const thumbBlob = await makeThumb(croppedCanvas);
         const bgBlobId = await repos.blobs.put(bgBlob);
         const thumbBlobId = await repos.blobs.put(thumbBlob);
+
+        let finalWidthMm: number;
+        let finalHeightMm: number;
+        if (paperSizeId === 'custom') {
+          finalWidthMm = customWidthMm || 210;
+          finalHeightMm = customHeightMm || 297;
+        } else {
+          const std = STANDARD_PAPER_SIZES.find((s) => s.id === paperSizeId);
+          // 写真の向き（横長か縦長か）に合わせて用紙の向きを決定
+          const isLandscape = croppedCanvas.width > croppedCanvas.height;
+          const shortSide = std ? Math.min(std.widthMm, std.heightMm) : 210;
+          const longSide = std ? Math.max(std.widthMm, std.heightMm) : 297;
+          finalWidthMm = isLandscape ? longSide : shortSide;
+          finalHeightMm = isLandscape ? shortSide : longSide;
+        }
+
         const created = await repos.templates.create({
           name: trimmedName,
           kind: 'photo',
@@ -134,6 +156,9 @@ export function RegisterPage() {
               width: croppedCanvas.width,
               height: croppedCanvas.height,
               bgBlobId,
+              paperSizeName: paperSizeId,
+              widthMm: finalWidthMm,
+              heightMm: finalHeightMm,
             },
           ],
           sourceBlobId: bgBlobId,
@@ -270,6 +295,72 @@ export function RegisterPage() {
       {kind === 'photo' && croppedCanvas && (
         <section className="card stack-form">
           <h2>写真の切り抜き・明るさ調整が完了しました</h2>
+
+          {/* 用紙サイズ選択・入力 */}
+          <div className="card-sub stack-form">
+            <div className="row-gap">
+              <Ruler size={22} color="var(--navy)" />
+              <h3 style={{ margin: 0 }}>用紙サイズの指定</h3>
+            </div>
+            <p className="sub-note">
+              出力（PDF・印刷）時の用紙サイズを設定します。既製品サイズ（A4、A3など）から選ぶか、ない場合はミリ単位（mm）で指定できます。
+            </p>
+
+            <label className="form-field">
+              <span>用紙サイズを選択</span>
+              <select
+                value={paperSizeId}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setPaperSizeId(val);
+                  if (val !== 'custom') {
+                    const std = STANDARD_PAPER_SIZES.find((s) => s.id === val);
+                    if (std) {
+                      setCustomWidthMm(std.widthMm);
+                      setCustomHeightMm(std.heightMm);
+                    }
+                  }
+                }}
+              >
+                {STANDARD_PAPER_SIZES.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            {paperSizeId === 'custom' && (
+              <div className="row-gap wrap" style={{ marginTop: 4 }}>
+                <label className="form-field" style={{ flex: 1, minWidth: 140 }}>
+                  <span>幅 (mm)</span>
+                  <input
+                    type="number"
+                    min={10}
+                    max={2000}
+                    value={customWidthMm}
+                    onChange={(e) => setCustomWidthMm(Number(e.target.value) || 0)}
+                    placeholder="例: 210"
+                  />
+                </label>
+                <label className="form-field" style={{ flex: 1, minWidth: 140 }}>
+                  <span>高さ (mm)</span>
+                  <input
+                    type="number"
+                    min={10}
+                    max={2000}
+                    value={customHeightMm}
+                    onChange={(e) => setCustomHeightMm(Number(e.target.value) || 0)}
+                    placeholder="例: 297"
+                  />
+                </label>
+              </div>
+            )}
+            <p className="sub-note" style={{ fontSize: 14 }}>
+              ※縦横の向きは写真の縦横比（{croppedCanvas.width > croppedCanvas.height ? '横長' : '縦長'}）に合わせて自動設定されます。
+            </p>
+          </div>
+
           <div className="preview-frame">
             <img
               src={croppedCanvas.toDataURL('image/jpeg', 0.85)}

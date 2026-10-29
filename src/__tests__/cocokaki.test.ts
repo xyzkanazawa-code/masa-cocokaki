@@ -119,7 +119,7 @@ describe('ココカキ：最重要ルール（空白テンプレート保護・�
     const tpl = await templates.create({
       name: 'テスト精算書',
       kind: 'photo',
-      pages: [{ index: 0, width: 800, height: 1000, bgBlobId }],
+      pages: [{ index: 0, width: 800, height: 1000, bgBlobId, paperSizeName: 'A4', widthMm: 210, heightMm: 297 }],
       sourceBlobId: bgBlobId,
       sourceMime: 'image/png',
       fields: [

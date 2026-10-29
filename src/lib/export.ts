@@ -70,10 +70,17 @@ export async function exportPdf(t: Template, rawValues: Record<string, string>, 
     if (t.kind === 'pdf' && t.sourceBlobId) {
       page = doc.getPage(i);
     } else {
-      // 写真・作り直し：A4幅を基準に、画像の縦横比のページを作る
-      const landscape = p.width > p.height;
-      const W = landscape ? 841.89 : 595.28;
-      const H = (W * p.height) / p.width;
+      // 写真・作り直し：用紙サイズ指定（mm）があればそのサイズに合わせる。未指定時はA4比率
+      let W: number;
+      let H: number;
+      if (p.widthMm && p.heightMm) {
+        W = (p.widthMm * 72) / 25.4;
+        H = (p.heightMm * 72) / 25.4;
+      } else {
+        const landscape = p.width > p.height;
+        W = landscape ? 841.89 : 595.28;
+        H = (W * p.height) / p.width;
+      }
       page = doc.addPage([W, H]);
       const rp = t.rebuild?.find((r) => r.page === i);
       if (t.kind === 'rebuilt' && rp) {
