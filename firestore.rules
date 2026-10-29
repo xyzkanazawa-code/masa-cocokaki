@@ -47,17 +47,22 @@ service cloud.firestore {
 
       match /templates/{id} {
         allow read: if isMember(t);
-        allow write: if isAdmin(t);
+        // 管理者は編集・削除可能、乗務員メンバーも新規登録（作成）は可能
+        allow create: if isMember(t);
+        allow update, delete: if isAdmin(t);
       }
 
       // テンプレートの画像・PDF。一度書いたら変更不可（空白テンプレートを守る）
       match /blobs/{id} {
         allow read: if isMember(t);
-        allow create, delete: if isAdmin(t);
+        // 管理者および乗務員メンバーが写真・PDF登録時に作成可能
+        allow create: if isMember(t);
+        allow delete: if isAdmin(t);
         allow update: if false;
         match /chunks/{c} {
           allow read: if isMember(t);
-          allow create, delete: if isAdmin(t);
+          allow create: if isMember(t);
+          allow delete: if isAdmin(t);
           allow update: if false;
         }
       }

@@ -9,8 +9,9 @@ import { renderPdf } from '../lib/pdf';
 import type { PageDef } from '../types';
 
 export function RegisterPage() {
-  const { repos } = useApp();
+  const { repos, role } = useApp();
   const nav = useNavigate();
+  const isAdmin = role === 'admin';
 
   const [name, setName] = useState('');
   const [kind, setKind] = useState<'pdf' | 'photo' | null>(null);
@@ -379,19 +380,23 @@ export function RegisterPage() {
               type="button"
               className="btn btn-primary btn-block"
               disabled={busy}
-              onClick={() => handleSaveTemplate('cleanup')}
+              onClick={() => handleSaveTemplate(isAdmin ? 'cleanup' : 'home')}
             >
               <Check size={20} />
-              保存して「きれい化（写真補正 / 作り直し）」へ進む（おすすめ）
+              {isAdmin
+                ? '保存して「きれい化（写真補正 / 作り直し）」へ進む（おすすめ）'
+                : '空白テンプレートとして登録してホームへ戻る'}
             </button>
-            <button
-              type="button"
-              className="btn btn-secondary btn-block"
-              disabled={busy}
-              onClick={() => handleSaveTemplate('edit')}
-            >
-              保存して「入力欄の配置」へ進む
-            </button>
+            {isAdmin && (
+              <button
+                type="button"
+                className="btn btn-secondary btn-block"
+                disabled={busy}
+                onClick={() => handleSaveTemplate('edit')}
+              >
+                保存して「入力欄の配置」へ進む
+              </button>
+            )}
             <button
               type="button"
               className="btn btn-secondary btn-block"
@@ -414,23 +419,37 @@ export function RegisterPage() {
             </div>
           )}
           <div className="action-stack">
-            <button
-              type="button"
-              className="btn btn-primary btn-block"
-              disabled={busy}
-              onClick={() => handleSaveTemplate('edit')}
-            >
-              <Check size={20} />
-              テンプレートを保存して「入力欄の配置」へ進む
-            </button>
-            <button
-              type="button"
-              className="btn btn-secondary btn-block"
-              disabled={busy}
-              onClick={() => handleSaveTemplate('home')}
-            >
-              空白テンプレートとして保存してホームへ戻る
-            </button>
+            {isAdmin ? (
+              <>
+                <button
+                  type="button"
+                  className="btn btn-primary btn-block"
+                  disabled={busy}
+                  onClick={() => handleSaveTemplate('edit')}
+                >
+                  <Check size={20} />
+                  テンプレートを保存して「入力欄の配置」へ進む
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-block"
+                  disabled={busy}
+                  onClick={() => handleSaveTemplate('home')}
+                >
+                  空白テンプレートとして保存してホームへ戻る
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                className="btn btn-primary btn-block"
+                disabled={busy}
+                onClick={() => handleSaveTemplate('home')}
+              >
+                <Check size={20} />
+                空白テンプレートとして保存してホームへ戻る
+              </button>
+            )}
           </div>
         </section>
       )}

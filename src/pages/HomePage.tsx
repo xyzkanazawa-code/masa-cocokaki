@@ -138,23 +138,23 @@ export function HomePage() {
 
   return (
     <main className="page-container">
-      {/* 管理者向け：新規テンプレート登録バー */}
-      {isAdmin && (
-        <section className="hero-action-bar">
-          <div>
-            <h1 className="section-heading">テンプレート管理・入力</h1>
-            <p className="sub-note">
-              登録したテンプレートは常に<strong>空白の状態</strong>で保管され、乗務員全員に共有されます。
-            </p>
-          </div>
-          <div className="hero-buttons">
-            <Link to="/register" className="btn btn-primary">
-              <Plus size={22} />
-              新規テンプレート登録（PDF / カメラ写真）
-            </Link>
-          </div>
-        </section>
-      )}
+      {/* 新規テンプレート登録バー（管理者・乗務員ともに撮影・登録可能） */}
+      <section className="hero-action-bar">
+        <div>
+          <h1 className="section-heading">テンプレート管理・入力</h1>
+          <p className="sub-note">
+            {isAdmin
+              ? '登録したテンプレートは常に空白の状態で保管され、乗務員全員に共有されます。'
+              : '写真やPDFを撮って新しいテンプレートを登録できます。'}
+          </p>
+        </div>
+        <div className="hero-buttons">
+          <Link to="/register" className="btn btn-primary">
+            <Plus size={22} />
+            写真・PDFから新規登録
+          </Link>
+        </div>
+      </section>
 
       {/* 入力途中の自動保存データがあればすぐ再開できるセクション */}
       {drafts.length > 0 && (
@@ -204,16 +204,17 @@ export function HomePage() {
           <div className="empty-state card">
             <FilePlus2 size={48} />
             <h3>まだテンプレートが登録されていません</h3>
-            {isAdmin ? (
-              <>
-                <p>
-                  「新規テンプレート登録」から精算書・日報のPDFや写真を登録するか、下のボタンでサンプル精算書を追加してすぐ試せます。
-                </p>
-                <div className="empty-actions">
-                  <Link to="/register" className="btn btn-primary">
-                    <Plus size={20} />
-                    新規テンプレート登録へ
-                  </Link>
+            <p>
+              「写真・PDFから新規登録」から精算書・日報の写真を撮るかPDFを登録してください。
+              {isAdmin && '下のボタンでサンプル精算書を追加してすぐ試すこともできます。'}
+            </p>
+            <div className="empty-actions">
+              <Link to="/register" className="btn btn-primary">
+                <Plus size={20} />
+                写真・PDFから新規登録へ
+              </Link>
+              {isAdmin && (
+                <>
                   <button
                     type="button"
                     className="btn btn-secondary"
@@ -232,11 +233,9 @@ export function HomePage() {
                     <Sparkles size={20} />
                     {busy ? '作成中…' : 'きれい化テスト用の影付き写真サンプルを追加'}
                   </button>
-                </div>
-              </>
-            ) : (
-              <p>管理者がテンプレートを登録すると、ここに表示されます。</p>
-            )}
+                </>
+              )}
+            </div>
           </div>
         ) : (
           <>
