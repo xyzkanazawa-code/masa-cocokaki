@@ -8,11 +8,13 @@ import {
   Plus,
   Sparkles,
   Trash2,
+  Wand2,
 } from 'lucide-react';
 import { useEffect, useRef, useState, type PointerEvent } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { CleanupPanel } from '../components/CleanupPanel';
 import { useApp } from '../context/AppContext';
+import { createEraseAnnotations, detectTextRegionsToErase } from '../lib/autoEraser';
 import { findCycle } from '../lib/calc';
 import { FIELD_TYPE_LABEL, isNumeric } from '../lib/format';
 import { clamp, newId } from '../lib/id';
@@ -59,7 +61,10 @@ export function TemplateEditorPage() {
 
   const [selectedFieldId, setSelectedFieldId] = useState<string | null>(null);
   const [selectedAnnId, setSelectedAnnId] = useState<string | null>(null);
-  const [drawMode, setDrawMode] = useState<'none' | 'new-field' | 'new-ann'>('none');
+  const [drawMode, setDrawMode] = useState<'none' | 'new-field' | 'new-ann' | 'eraser-brush'>('none');
+  const [eraserSize, setEraserSize] = useState<number>(0.035);
+  const [erasingBusy, setErasingBusy] = useState(false);
+  const [erasingStatus, setErasingStatus] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [savedNotice, setSavedNotice] = useState<string | null>(null);
   const [cycleWarn, setCycleWarn] = useState<string | null>(null);
@@ -68,8 +73,8 @@ export function TemplateEditorPage() {
   const bgCanvasRef = useRef<HTMLCanvasElement>(null);
 
   const [dragOp, setDragOp] = useState<{
-    target: 'field' | 'ann' | 'create-field' | 'create-ann';
-    mode: 'move' | 'resize' | 'draw';
+    target: 'field' | 'ann' | 'create-field' | 'create-ann' | 'brush-erase';
+    mode: 'move' | 'resize' | 'draw' | 'brush';
     id?: string;
     startX: number;
     startY: number;
@@ -226,12 +231,46 @@ export function TemplateEditorPage() {
     } else if (drawMode === 'new-ann') {
       const rect: Rect = { x, y, w: 0.2, h: 0.04 };
       addAnnotationAt(rect, '修正テキスト');
+    } else if (drawMode === 'eraser-brush') {
+      const w = eraserSize;
+      const h = eraserSize * 0.8;
+      const rect: Rect = {
+        x: clamp(x - w / 2, 0, 1 - w),
+        y: clamp(y - h / 2, 0, 1 - h),
+        w,
+        h,
+      };
+      addAnnotationAt(rect, '');
+      setDragOp({
+        target: 'brush-erase',
+        mode: 'brush',
+        startX: e.clientX,
+        startY: e.clientY,
+        origRect: rect,
+      });
     }
   };
 
   const handleStagePointerMove = (e: PointerEvent) => {
     if (!dragOp || !stageRef.current) return;
     const r = stageRef.current.getBoundingClientRect();
+    const cx = clamp((e.clientX - r.left) / r.width, 0, 1);
+    const cy = clamp((e.clientY - r.top) / r.height, 0, 1);
+
+    if (dragOp.mode === 'brush') {
+      // 指でなぞった軌跡に連続してマスク枠（消しゴム）を追加
+      const w = eraserSize;
+      const h = eraserSize * 0.8;
+      const rect: Rect = {
+        x: clamp(cx - w / 2, 0, 1 - w),
+        y: clamp(cy - h / 2, 0, 1 - h),
+        w,
+        h,
+      };
+      addAnnotationAt(rect, '');
+      return;
+    }
+
     const dx = (e.clientX - dragOp.startX) / r.width;
     const dy = (e.clientY - dragOp.startY) / r.height;
     const o = dragOp.origRect;
@@ -260,8 +299,11 @@ export function TemplateEditorPage() {
 
   const handleStagePointerUp = () => {
     if (dragOp) {
+      const wasBrush = dragOp.mode === 'brush';
       setDragOp(null);
-      setDrawMode('none');
+      if (!wasBrush) {
+        setDrawMode('none');
+      }
     }
   };
 
@@ -437,23 +479,80 @@ export function TemplateEditorPage() {
                 <div className="row-gap wrap">
                   <button
                     type="button"
-                    className={`btn btn-sm ${drawMode === 'new-ann' ? 'btn-active-toggle' : 'btn-primary'}`}
-                    onClick={() => setDrawMode((m) => (m === 'new-ann' ? 'none' : 'new-ann'))}
+                    className={`btn btn-sm ${drawMode === 'eraser-brush' ? 'btn-active-toggle' : 'btn-primary'}`}
+                    onClick={() =>
+                      setDrawMode((m) => (m === 'eraser-brush' ? 'none' : 'eraser-brush'))
+                    }
                   >
-                    <Plus size={18} />
-                    {drawMode === 'new-ann'
-                      ? '隠したい文字の上をタップしてください'
-                      : 'マスク＋上書き文字を追加'}
+                    <Eraser size={18} />
+                    {drawMode === 'eraser-brush'
+                      ? '消したい部分を指でなぞってください'
+                      : '手書き・数字を指でなぞって消す（消しゴム）'}
                   </button>
+
                   <button
                     type="button"
                     className="btn btn-secondary btn-sm"
-                    onClick={() =>
-                      addAnnotationAt({ x: 0.2, y: 0.2, w: 0.24, h: 0.045 }, '新しい文字')
-                    }
+                    disabled={erasingBusy}
+                    onClick={async () => {
+                      if (!bgCanvasRef.current) return;
+                      setErasingBusy(true);
+                      setErasingStatus('写真内の数字・記入内容を自動検出中…');
+                      try {
+                        const regions = await detectTextRegionsToErase(
+                          bgCanvasRef.current,
+                          true,
+                          (msg) => setErasingStatus(msg),
+                        );
+                        if (regions.length === 0) {
+                          alert('消去対象の数字や手書き文字が見つかりませんでした。手動の消しゴムまたは四角マスクをお使いください。');
+                          return;
+                        }
+                        const newAnns = createEraseAnnotations(
+                          bgCanvasRef.current,
+                          regions.map((r) => r.rect),
+                          pageIndex,
+                        );
+                        setAnnotations((prev) => [...prev, ...newAnns]);
+                        setSavedNotice(`${regions.length}箇所の記入数字を白紙化しました！`);
+                        setTimeout(() => setSavedNotice(null), 3500);
+                      } catch (err) {
+                        alert('自動検出でエラーが発生しました: ' + (err as Error).message);
+                      } finally {
+                        setErasingBusy(false);
+                        setErasingStatus(null);
+                      }
+                    }}
                   >
-                    中央にマスク枠を追加
+                    <Wand2 size={18} />
+                    {erasingBusy ? erasingStatus : '記入数字・金額を自動検出して一括消去'}
                   </button>
+
+                  <button
+                    type="button"
+                    className={`btn btn-sm ${drawMode === 'new-ann' ? 'btn-active-toggle' : 'btn-secondary'}`}
+                    onClick={() => setDrawMode((m) => (m === 'new-ann' ? 'none' : 'new-ann'))}
+                  >
+                    <Plus size={18} />
+                    四角で隠す（マスク）
+                  </button>
+
+                  {annotations.filter((a) => a.page === pageIndex).length > 0 && (
+                    <button
+                      type="button"
+                      className="btn btn-outline-danger btn-sm"
+                      onClick={() => {
+                        if (window.confirm('このページの消しゴム・マスクをすべてリセットしますか？')) {
+                          setAnnotations((prev) => prev.filter((a) => a.page !== pageIndex));
+                          setSelectedAnnId(null);
+                        }
+                      }}
+                    >
+                      <Trash2 size={16} />
+                      消去を全リセット
+                    </button>
+                  )}
+
                   {pdfTextItems.length > 0 && (
                     <span className="sub-note">
                       ※PDF内の青い点線枠をタップすると、その文字を直接マスクして書き換えられます
@@ -959,17 +1058,34 @@ export function TemplateEditorPage() {
               </div>
             )}
 
-            {/* ---------- タブ3：テンプレートの文字の修正（マスク＋上書き） ---------- */}
+            {/* ---------- タブ3：テンプレートの文字の修正（マスク＋上書き・消しゴム） ---------- */}
             {tab === 'annotations' && (
               <div className="stack-form">
-                <h3>文字の修正（背景色マスク＋上書き文字）</h3>
+                <h3>文字の修正・手書き数字の消去</h3>
                 <p className="sub-note">
-                  元の文字を背景色と同じ四角で隠し（マスク）、その上に新しい文字を重ねます。次回から修正後のテンプレートが空白の状態で使えます。
+                  数字や手書き文字を背景色と同じ色で隠して（消去）、きれいな空白テンプレートにします。
                 </p>
+
+                <div className="card-sub stack-form">
+                  <div className="row-between">
+                    <strong>消しゴムの太さ</strong>
+                    <span>{Math.round(eraserSize * 1000)}px</span>
+                  </div>
+                  <input
+                    type="range"
+                    min={15}
+                    max={80}
+                    value={Math.round(eraserSize * 1000)}
+                    onChange={(e) => setEraserSize(Number(e.target.value) / 1000)}
+                  />
+                  <span className="sub-note" style={{ fontSize: 13 }}>
+                    ※「手書き・数字を指でなぞって消す」ボタンを押した後、写真上を指でなぞるとその部分が白紙化されます。
+                  </span>
+                </div>
 
                 {!selectedAnn ? (
                   <p className="sub-note">
-                    「マスク＋上書き文字を追加」ボタンを押してテンプレート上をタップするか、PDFの文字枠をタップしてください。
+                    「手書き・数字を指でなぞって消す」で消去するか、「四角で隠す（マスク）」を押して消したい部分を囲んでください。
                   </p>
                 ) : (
                   <>
