@@ -14,6 +14,7 @@ import { useApp } from '../context/AppContext';
 import { useBlobUrl } from '../hooks/useBlobUrl';
 import { fmtDate } from '../lib/id';
 import { createSampleSettlementTemplate } from '../lib/sampleTemplate';
+import { createSeisanTemplate } from '../lib/seisanTemplate';
 import type { Template } from '../types';
 
 function TemplateCard({
@@ -136,6 +137,16 @@ export function HomePage() {
     }
   };
 
+  const handleAddSeisan = async () => {
+    if (!repos) return;
+    setBusy(true);
+    try {
+      await createSeisanTemplate(repos.blobs, repos.templates);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <main className="page-container">
       {/* 新規テンプレート登録バー（管理者・乗務員ともに撮影・登録可能） */}
@@ -233,6 +244,15 @@ export function HomePage() {
                     <Sparkles size={20} />
                     {busy ? '作成中…' : 'きれい化テスト用の影付き写真サンプルを追加'}
                   </button>
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    disabled={busy}
+                    onClick={handleAddSeisan}
+                  >
+                    <Sparkles size={20} />
+                    {busy ? '作成中…' : '精算表（実物スキャン）を追加'}
+                  </button>
                 </>
               )}
             </div>
@@ -269,6 +289,14 @@ export function HomePage() {
                   onClick={() => handleAddSample(true)}
                 >
                   ＋影付き写真サンプル（きれい化テスト用）
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  disabled={busy}
+                  onClick={handleAddSeisan}
+                >
+                  ＋精算表（実物スキャン）
                 </button>
               </div>
             )}
