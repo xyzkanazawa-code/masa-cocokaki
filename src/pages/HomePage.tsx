@@ -251,7 +251,7 @@ export function HomePage() {
                     onClick={handleAddSeisan}
                   >
                     <Sparkles size={20} />
-                    {busy ? '作成中…' : '精算表（実物スキャン）を追加'}
+                    {busy ? '作成中…' : '精算表（データ版）を追加'}
                   </button>
                 </>
               )}
@@ -296,7 +296,7 @@ export function HomePage() {
                   disabled={busy}
                   onClick={handleAddSeisan}
                 >
-                  ＋精算表（実物スキャン）
+                  ＋精算表（データ版）
                 </button>
               </div>
             )}
