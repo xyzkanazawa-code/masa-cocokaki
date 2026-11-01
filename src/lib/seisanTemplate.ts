@@ -1,21 +1,106 @@
 import type { BlobStore, TemplateRepository } from '../repo/types';
-import type { FieldDef, FormulaTerm, NewTemplate } from '../types';
-import { canvasToBlob, imageToCanvas, loadImage, makeThumb } from './image';
+import type {
+  FieldDef,
+  FormulaTerm,
+  NewTemplate,
+  RebuildLine,
+  RebuildPage,
+  RebuildText,
+} from '../types';
+import { ensureCanvasFonts } from './fonts';
+import { canvasToBlob, makeThumb, newCanvas } from './image';
 import { newId } from './id';
-import { SEISAN_PNG_BASE64 } from './seisanImage';
-
-function base64ToBlob(b64: string, mime = 'image/png'): Blob {
-  const bin = atob(b64);
-  const bytes = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-  return new Blob([bytes], { type: mime });
-}
+import { drawRebuild } from './render';
 
 /**
- * 実物の精算表（空白・1面のみ、会社名なし）をテンプレートとして追加する。
- * 入力欄83件はスキャン画像の罫線から計測した座標で初期配置する。
- * 合計欄と残金は formula（自動計算）。座標はすべて比率（0〜1）。
+ * 実物の精算表を「データ（罫線＋文字）」で再構成したテンプレート。
+ * 写真画像ではなく座標データなので容量が小さく、拡大しても線がきれい。
+ * 座標は実物スキャンの罫線を計測した値（すべて比率 0〜1）。
+ * 入力欄83件は初期配置済み。合計欄と残金は formula（自動計算）。
  */
+
+const PW = 2480;
+const PH = 1690;
+
+function L(x1: number, y1: number, x2: number, y2: number, width: number): RebuildLine {
+  return { id: newId(), x1, y1, x2, y2, width };
+}
+
+function T(
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  text: string,
+  fontSize: number,
+  bold: boolean,
+  align: RebuildText['align'],
+): RebuildText {
+  return { id: newId(), rect: { x, y, w, h }, text, fontSize, bold, align };
+}
+
+const REBUILD_PAGE: RebuildPage = {
+  page: 0,
+  lines: [
+  L(0.0359, 0.1704, 0.0359, 0.9692, 0.0013),
+  L(0.1508, 0.1704, 0.1508, 0.9692, 0.0013),
+  L(0.2629, 0.1704, 0.2629, 0.7982, 0.0013),
+  L(0.3754, 0.1704, 0.3754, 0.7982, 0.0013),
+  L(0.4879, 0.1704, 0.4879, 0.7982, 0.0013),
+  L(0.6012, 0.1704, 0.6012, 0.7982, 0.0013),
+  L(0.7133, 0.1704, 0.7133, 0.9692, 0.0013),
+  L(0.8242, 0.1704, 0.8242, 0.9692, 0.0013),
+  L(0.9633, 0.1704, 0.9633, 0.9692, 0.0013),
+  L(0.0359, 0.1704, 0.9633, 0.1704, 0.0013),
+  L(0.0359, 0.2278, 0.9633, 0.2278, 0.0013),
+  L(0.0359, 0.2852, 0.9633, 0.2852, 0.0013),
+  L(0.0359, 0.342, 0.9633, 0.342, 0.0013),
+  L(0.0359, 0.3988, 0.9633, 0.3988, 0.0013),
+  L(0.0359, 0.4556, 0.9633, 0.4556, 0.0013),
+  L(0.0359, 0.513, 0.9633, 0.513, 0.0013),
+  L(0.0359, 0.5698, 0.9633, 0.5698, 0.0013),
+  L(0.0359, 0.6272, 0.9633, 0.6272, 0.0013),
+  L(0.0359, 0.684, 0.9633, 0.684, 0.0013),
+  L(0.0359, 0.7408, 0.9633, 0.7408, 0.0013),
+  L(0.0359, 0.7982, 0.9633, 0.7982, 0.0013),
+  L(0.0359, 0.9692, 0.9633, 0.9692, 0.0013),
+  L(0.7133, 0.8533, 0.9633, 0.8533, 0.0013),
+  L(0.7133, 0.9101, 0.9633, 0.9101, 0.0013),
+  L(0.0621, 0.1515, 0.4448, 0.1515, 0.0008),
+  L(0.4923, 0.1515, 0.754, 0.1515, 0.0008),
+  L(0.7794, 0.1515, 0.9532, 0.1515, 0.0008),
+  L(0.4032, 0.0888, 0.5423, 0.0888, 0.0012),
+  L(0.4032, 0.0941, 0.5423, 0.0941, 0.0007)
+  ],
+  texts: [
+  T(0.379, 0.0343, 0.2419, 0.0544, '精算表', 0.031, true, 'center'),
+  T(0.0452, 0.1053, 0.0968, 0.0438, '団体名：', 0.02, false, 'left'),
+  T(0.4911, 0.1053, 0.0968, 0.0438, '運転手：', 0.02, false, 'left'),
+  T(0.7774, 0.1053, 0.0766, 0.0438, '車番：', 0.02, false, 'left'),
+  T(0.0375, 0.1728, 0.1117, 0.0527, '項 目', 0.019, false, 'center'),
+  T(0.0988, 0.1716, 0.0504, 0.0237, '日付', 0.012, false, 'right'),
+  T(0.1524, 0.1728, 0.1089, 0.0527, '月 日', 0.016, false, 'right'),
+  T(0.2645, 0.1728, 0.1093, 0.0527, '月 日', 0.016, false, 'right'),
+  T(0.377, 0.1728, 0.1093, 0.0527, '月 日', 0.016, false, 'right'),
+  T(0.4895, 0.1728, 0.1101, 0.0527, '月 日', 0.016, false, 'right'),
+  T(0.6028, 0.1728, 0.1089, 0.0527, '月 日', 0.016, false, 'right'),
+  T(0.7149, 0.1728, 0.1077, 0.0527, '月 日', 0.016, false, 'right'),
+  T(0.8258, 0.1728, 0.1359, 0.0527, '合 計', 0.019, true, 'center'),
+  T(0.0375, 0.2302, 0.1117, 0.0527, '回送代', 0.019, false, 'center'),
+  T(0.0375, 0.2876, 0.1117, 0.0521, '実車ETC代', 0.019, false, 'center'),
+  T(0.0375, 0.3444, 0.1117, 0.0521, '駐車代', 0.019, false, 'center'),
+  T(0.0375, 0.4012, 0.1117, 0.0521, '食事代', 0.019, false, 'center'),
+  T(0.0375, 0.458, 0.1117, 0.0527, 'お茶代', 0.019, false, 'center'),
+  T(0.0375, 0.5154, 0.1117, 0.0521, '水代', 0.019, false, 'center'),
+  T(0.0375, 0.5722, 0.1117, 0.0527, '宿泊代', 0.019, false, 'center'),
+  T(0.0375, 0.6296, 0.1117, 0.0521, 'タクシー代', 0.019, false, 'center'),
+  T(0.0375, 0.7432, 0.1117, 0.0527, '合計', 0.019, true, 'center'),
+  T(0.0375, 0.8006, 0.1117, 0.1663, '備 考', 0.019, false, 'center'),
+  T(0.7149, 0.8006, 0.1077, 0.0503, '預金', 0.019, false, 'center'),
+  T(0.7149, 0.8556, 0.1077, 0.0521, '立替金', 0.019, false, 'center'),
+  T(0.7149, 0.9124, 0.1077, 0.0527, '残金', 0.019, false, 'center')
+  ],
+};
 
 type FieldSpec = {
   key: string;
@@ -125,14 +210,15 @@ function parseFormula(f: string, ids: Map<string, string>): FormulaTerm[] {
 }
 
 export async function createSeisanTemplate(blobs: BlobStore, templates: TemplateRepository) {
-  const srcBlob = base64ToBlob(SEISAN_PNG_BASE64);
-  const img = await loadImage(srcBlob);
-  const canvas = imageToCanvas(img, 2480);
-  const bgBlob = await canvasToBlob(canvas, 'image/jpeg', 0.92);
+  // 背景用の画像は、データから描いたものを保存する（表示は rebuild データが優先される）
+  await ensureCanvasFonts();
+  const canvas = newCanvas(PW, PH);
+  const ctx = canvas.getContext('2d')!;
+  drawRebuild(ctx, REBUILD_PAGE, PW, PH);
+  const bgBlob = await canvasToBlob(canvas, 'image/jpeg', 0.9);
   const thumbBlob = await makeThumb(canvas);
   const bgBlobId = await blobs.put(bgBlob);
   const thumbBlobId = await blobs.put(thumbBlob);
-  const sourceBlobId = await blobs.put(srcBlob);
 
   const ids = new Map<string, string>();
   for (const s of FIELD_SPECS) ids.set(s.key, newId());
@@ -151,13 +237,14 @@ export async function createSeisanTemplate(blobs: BlobStore, templates: Template
 
   const nt: NewTemplate = {
     name: '精算表',
-    kind: 'photo',
-    pages: [{ index: 0, width: canvas.width, height: canvas.height, bgBlobId }],
-    sourceBlobId,
-    sourceMime: 'image/png',
+    kind: 'rebuilt',
+    pages: [{ index: 0, width: PW, height: PH, bgBlobId }],
+    sourceBlobId: bgBlobId,
+    sourceMime: 'image/jpeg',
     thumbBlobId,
     fields,
     annotations: [],
+    rebuild: [REBUILD_PAGE],
   };
 
   return templates.create(nt);
